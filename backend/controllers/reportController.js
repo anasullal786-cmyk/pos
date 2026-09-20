@@ -8,8 +8,9 @@ function withinDays(iso, days) {
   return d >= cutoff;
 }
 
-export function getReports(_req, res) {
-  const orders = store.getOrders().filter((o) => o.status !== 'Cancelled');
+export async function getReports(_req, res) {
+  const allOrders = await store.getOrders();
+  const orders = allOrders.filter((o) => o.status !== 'Cancelled');
   const completed = orders.filter((o) => o.status === 'Completed');
 
   const sum = (list) => list.reduce((s, o) => s + (o.total || 0), 0);
@@ -31,7 +32,7 @@ export function getReports(_req, res) {
   const bestSellers = [...itemMap.values()].sort((a, b) => b.quantity - a.quantity).slice(0, 8);
 
   // Sales by category using the menu for product -> category lookup.
-  const menu = store.getMenu();
+  const menu = await store.getMenu();
   const catMap = new Map();
   for (const o of orders) {
     for (const it of o.items || []) {
@@ -79,7 +80,7 @@ export function getReports(_req, res) {
       monthSales: +sum(monthOrders).toFixed(2),
       totalOrders: orders.length,
       completedOrders: completed.length,
-      pendingOrders: store.getOrders().filter((o) => ['Pending', 'Preparing', 'Ready'].includes(o.status)).length,
+      pendingOrders: allOrders.filter((o) => ['Pending', 'Preparing', 'Ready'].includes(o.status)).length,
       averageOrderValue: orders.length ? +(sum(orders) / orders.length).toFixed(2) : 0,
       bestSellers,
       salesByCategory,

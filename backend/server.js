@@ -13,14 +13,6 @@ import { buildTables } from './services/seed.js';
 
 dotenv.config();
 
-// Load saved data from disk, or seed the store on first run (orders
-// start empty). All later changes are persisted on every mutation.
-store.initialize({
-  menu: buildSeedMenu(),
-  tables: buildTables(10),
-  orders: [],
-});
-
 const app = express();
 app.use(cors());
 // Base64-encoded menu images ride along in JSON payloads; the default
@@ -39,6 +31,16 @@ app.use(notFound);
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
+
+// Connect to Supabase (and seed demo data on first run) before
+// accepting traffic. A failure here is fatal on purpose — a clear
+// boot error beats an API that silently serves no data.
+try {
+  await store.initialize({ menu: buildSeedMenu(), tables: buildTables(10) });
+} catch (err) {
+  console.error('[server] Could not initialise the Supabase data layer:', err.message);
+  process.exit(1);
+}
 app.listen(PORT, () => {
   console.log(`☕ Café POS API listening on http://localhost:${PORT}`);
 });

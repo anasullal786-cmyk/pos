@@ -3,13 +3,12 @@ import { PAYMENT_METHODS, ORDER_STATUSES } from '../utils/constants.js';
 import {
   isNonEmptyString,
   isNonNegativeNumber,
-  isNonNegativeInteger,
   isPositiveInteger,
   result,
 } from '../utils/validation.js';
 
-export function getAll(req, res) {
-  let orders = store.getOrders();
+export async function getAll(req, res) {
+  let orders = await store.getOrders(); // already newest-first
   const { status, search } = req.query;
 
   if (status && ORDER_STATUSES.includes(status)) {
@@ -22,100 +21,89 @@ export function getAll(req, res) {
     );
   }
 
-  orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   res.json({ success: true, data: orders });
 }
 
-export function getOne(req, res) {
-  const order = store.getOrders().find((o) => o.id === req.params.id);
+export async function getOne(req, res) {
+  const order = await store.getOrder(req.params.id);
   if (!order) return res.status(404).json({ success: false, message: 'Order not found.' });
   res.json({ success: true, data: order });
 }
 
-export function create(req, res) {
+export async function create(req, res) {
   const { ok, errors, order } = validateOrder(req.body);
   if (!ok) return res.status(400).json({ success: false, message: 'Could not create order.', errors });
 
-  const orders = store.getOrders();
-  orders.push(order);
-  store.setOrders(orders);
+  const created = await store.insertOrder(order);
 
   // Occupying a table: only when the order is not yet closed.
-  if (order.tableId && !['Completed', 'Cancelled'].includes(order.status)) {
-    const tables = store.getTables();
-    const t = tables.find((t) => t.id === order.tableId);
-    if (t) t.status = 'Occupied';
-    store.setTables(tables);
+  if (created.tableId && !['Completed', 'Cancelled'].includes(created.status)) {
+    await store.updateTable(created.tableId, { status: 'Occupied' });
   }
 
-  res.status(201).json({ success: true, data: order });
+  res.status(201).json({ success: true, data: created });
 }
 
-export function update(req, res) {
-  const orders = store.getOrders();
-  const idx = orders.findIndex((o) => o.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ success: false, message: 'Order not found.' });
+export async function update(req, res) {
+  const prev = await store.getOrder(req.params.id);
+  if (!prev) return res.status(404).json({ success: false, message: 'Order not found.' });
 
-  const prev = orders[idx];
   const merged = { ...prev, ...req.body, id: prev.id, createdAt: prev.createdAt };
   const { ok, errors } = validateOrder(merged, { partial: true });
   if (!ok) return res.status(400).json({ success: false, message: 'Could not update order.', errors });
 
   merged.updatedAt = new Date().toISOString();
-  orders[idx] = merged;
-  store.setOrders(orders);
+  const updated = await store.updateOrder(prev.id, merged);
 
-  syncTableStatus(prev, merged);
-  res.json({ success: true, data: merged });
+  await syncTableStatus(prev, updated);
+  res.json({ success: true, data: updated });
 }
 
-export function remove(req, res) {
-  const orders = store.getOrders();
-  const order = orders.find((o) => o.id === req.params.id);
+export async function remove(req, res) {
+  const order = await store.getOrder(req.params.id);
   if (!order) return res.status(404).json({ success: false, message: 'Order not found.' });
 
-  store.setOrders(orders.filter((o) => o.id !== req.params.id));
+  await store.deleteOrder(order.id);
   if (order.tableId && order.status !== 'Completed' && order.status !== 'Cancelled') {
-    freeTableIfNoActiveOrders(order.tableId);
+    await freeTableIfNoActiveOrders(order.tableId);
   }
   res.json({ success: true, data: { id: req.params.id } });
 }
 
 /** A table is occupied only while it has pending/preparing/ready orders. */
-function syncTableStatus(prev, next) {
+async function syncTableStatus(prev, next) {
   const statusChanged =
     prev.status !== next.status || (prev.tableId || '') !== (next.tableId || '');
   if (!statusChanged) return;
 
-  const tables = store.getTables();
   const activeStatuses = ['Pending', 'Preparing', 'Ready'];
 
   if (prev.tableId && prev.tableId !== next.tableId) {
-    freeTableIfNoActiveOrders(prev.tableId, next.id);
+    await freeTableIfNoActiveOrders(prev.tableId, next.id);
   }
 
-  const t = tables.find((t) => t.id === next.tableId);
-  if (t) {
-    if (['Completed', 'Cancelled'].includes(next.status)) {
-      freeTableIfNoActiveOrders(t.id, next.id);
-    } else if (activeStatuses.includes(next.status)) {
-      t.status = 'Occupied';
-    }
+  if (!next.tableId) return;
+
+  if (['Completed', 'Cancelled'].includes(next.status)) {
+    await freeTableIfNoActiveOrders(next.tableId, next.id);
+  } else if (activeStatuses.includes(next.status)) {
+    await store.updateTable(next.tableId, { status: 'Occupied' });
   }
-  store.setTables(tables);
 }
 
-function freeTableIfNoActiveOrders(tableId, excludeOrderId = null) {
-  const hasActive = store
-    .getOrders()
-    .some(
-      (o) =>
-        o.tableId === tableId &&
-        !['Completed', 'Cancelled'].includes(o.status) &&
-        o.id !== excludeOrderId
-    );
-  const t = store.getTables().find((t) => t.id === tableId);
-  if (t && !hasActive) t.status = 'Available';
+async function freeTableIfNoActiveOrders(tableId, excludeOrderId = null) {
+  const hasActive = (await store.getOrders()).some(
+    (o) =>
+      o.tableId === tableId &&
+      !['Completed', 'Cancelled'].includes(o.status) &&
+      o.id !== excludeOrderId
+  );
+  if (hasActive) return;
+
+  const t = await store.getTable(tableId);
+  if (t && t.status !== 'Available') {
+    await store.updateTable(tableId, { status: 'Available' });
+  }
 }
 
 function validateOrder(b, { partial = false } = {}) {

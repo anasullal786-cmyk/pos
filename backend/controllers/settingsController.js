@@ -2,12 +2,12 @@ import * as store from '../services/store.js';
 import { DEFAULT_SETTINGS } from '../utils/constants.js';
 import { isNonNegativeNumber } from '../utils/validation.js';
 
-export function get(_req, res) {
-  res.json({ success: true, data: store.getSettings() });
+export async function get(_req, res) {
+  res.json({ success: true, data: await store.getSettings() });
 }
 
-export function update(req, res) {
-  const current = store.getSettings();
+export async function update(req, res) {
+  const current = await store.getSettings();
   const next = { ...current, ...req.body, id: undefined };
   delete next.id;
 
@@ -26,6 +26,6 @@ export function update(req, res) {
   next.currency = String(next.currency || DEFAULT_SETTINGS.currency).toUpperCase();
   next.currencySymbol = String(next.currencySymbol || DEFAULT_SETTINGS.currencySymbol);
 
-  store.setSettings(next);
-  res.json({ success: true, data: next });
+  const saved = await store.setSettings(next);
+  res.json({ success: true, data: saved });
 }

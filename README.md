@@ -1,10 +1,9 @@
 # ☕ Café POS — Point of Sale & Order Management System
 
 A complete, modern café POS built with **React + Vite + Tailwind CSS** on the frontend and
-**Node.js + Express** on the backend. Data persists in **browser localStorage** and in a
-**JSON data file on the backend** (`backend/data/cafe-pos-data.json`) — no external database —
-served through a clean service layer so the storage engine can later be swapped for
-SQLite/PostgreSQL without touching the UI.
+**Node.js + Express** on the backend, persisting all data in **Supabase (managed PostgreSQL)**.
+The frontend keeps a **localStorage fallback**, so the app still works whenever the backend is
+unreachable — served through a clean service layer so the UI never cares where data lives.
 
 ---
 
@@ -37,6 +36,25 @@ SQLite/PostgreSQL without touching the UI.
 
 ### Prerequisites
 - Node.js 18+
+- A free [Supabase](https://supabase.com) project
+
+### Supabase setup (one time)
+
+1. Create a project at [supabase.com](https://supabase.com) (or use an existing one).
+2. Open **Dashboard → SQL Editor → New query**, paste the contents of
+   `backend/supabase/schema.sql`, and run it. This creates the `menu_items`, `orders`,
+   `tables` and `settings` tables (RLS enabled — only the backend's service key can access
+   them).
+3. Open **Project Settings → API** and copy the **Project URL** and the **service_role** key.
+4. `cp backend/.env.example backend/.env`, then fill in:
+   ```
+   SUPABASE_URL=https://YOUR-PROJECT-REF.supabase.co
+   SUPABASE_SERVICE_ROLE_KEY=your-service-role-secret-key
+   ```
+5. Start the backend — on first run it seeds 26 menu items and 10 tables automatically.
+
+> The **service_role key is server-side only**. It bypasses Row Level Security and must never
+> be embedded in the frontend or committed to git (`backend/.env` is git-ignored).
 
 ### Install
 
@@ -83,12 +101,14 @@ cafe-pos/
 ├── package.json               # root scripts (concurrently)
 ├── README.md
 ├── backend/
-│   ├── server.js              # Express entry, wires routes, seeds data
+│   ├── server.js              # Express entry, wires routes, connects to Supabase & seeds
+│   ├── supabase/
+│   │   └── schema.sql         # tables + indexes + RLS — run once in the SQL Editor
 │   ├── routes/                # menuRoutes, orderRoutes, tableRoutes, miscRoutes
 │   ├── controllers/           # menu, orders, tables, reports, settings
 │   ├── services/
-│   │   ├── store.js           # in-memory store, persisted to disk (swap for a DB later)
-│   │   ├── persistence.js     # load/save the JSON data file on every mutation
+│   │   ├── store.js           # async Supabase data layer (the ONLY module that queries the DB)
+│   │   ├── supabaseClient.js  # service-role Supabase client (reads backend/.env)
 │   │   ├── seed.js            # raw seed rows (menu/tables/orders)
 │   │   └── seedData.js        # builds seeded records with ids
 │   ├── middleware/errorHandler.js
@@ -161,10 +181,34 @@ services/dataService.js   ←── the ONLY data interface the UI knows
 
 ---
 
-## 💾 localStorage structure
+## 🗄 Database (Supabase)
+
+The backend stores everything in Postgres. `backend/services/store.js` is the **only** module
+that queries the database; controllers consume its async functions, so swapping the storage
+engine again would not touch controllers or routes.
+
+| Table        | Content                                                                 |
+|--------------|-------------------------------------------------------------------------|
+| `menu_items` | `{ id, name, category, price, description, image, available, created_at }` |
+| `orders`     | Order rows with the item lines embedded as a `jsonb` `items` column     |
+| `tables`     | `{ id, name, status, created_at }` (`T1`…`T10`)                         |
+| `settings`   | Single row (`id = 1`) with café name, tax, currency, receipt footer, …  |
+
+Columns are `snake_case` in Postgres and mapped to the API's `camelCase` shapes in the store,
+so the REST contract above is unchanged. Row Level Security is enabled with **no public
+policies**: the browser-facing anon key can do nothing directly — only the backend's
+service_role key reaches the data.
+
+Seeding happens automatically on first boot (empty tables) and after `POST /api/reset`:
+26 menu items, 10 tables, default settings; orders always start empty.
+
+---
+
+## 💾 localStorage structure (offline fallback)
 
 `frontend/src/utils/storage.js` is the **only** file that touches `localStorage`; components
-never call it directly.
+never call it directly. The keys below are the **fallback cache** used when the backend is
+unreachable — with Supabase connected, the REST API is the source of truth.
 
 | Key              | Content                                        |
 |------------------|------------------------------------------------|
@@ -245,42 +289,6 @@ Add JWT/session auth later at the API layer plus a login route if needed.
 
 ---
 
-## 🗄 Migrating from localStorage to SQLite/PostgreSQL
-
-The architecture is deliberately prepared for this:
-
-1. **Backend:** replace the function bodies in `backend/services/store.js` with real SQL
-   (better: use `better-sqlite3` / `pg` + a small query layer). Controllers already consume
-   `store.getMenu()/setMenu()` etc., so **no controller or route changes** are needed.
-2. **Frontend:** `services/dataService.js` already prefers the REST API. Once the backend is
-   authoritative, delete (or keep as offline cache) the localStorage fallback branches — no page
-   or context changes are required.
-3. **Suggested schema (Postgres):**
-   ```sql
-   CREATE TABLE menu_items (
-     id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL,
-     price NUMERIC(10,2) NOT NULL CHECK (price >= 0),
-     description TEXT, image TEXT, available BOOLEAN DEFAULT TRUE
-   );
-   CREATE TABLE orders (
-     id TEXT PRIMARY KEY, table_id TEXT, customer_name TEXT,
-     subtotal NUMERIC(10,2), discount NUMERIC(10,2), tax NUMERIC(10,2),
-     tax_percent NUMERIC(5,2), total NUMERIC(10,2),
-     payment_method TEXT, status TEXT, created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ
-   );
-   CREATE TABLE order_items (
-     id SERIAL PRIMARY KEY, order_id TEXT REFERENCES orders(id) ON DELETE CASCADE,
-     product_id TEXT, name TEXT, price NUMERIC(10,2), quantity INT CHECK (quantity > 0), notes TEXT
-   );
-   CREATE TABLE tables (
-     id TEXT PRIMARY KEY, name TEXT, status TEXT CHECK (status IN ('Available','Occupied','Reserved'))
-   );
-   ```
-4. Because all persistence flows through **one storage module** on each side, nothing else in
-   the app changes.
-
----
-
 ## 🛠 Tech Stack
 
 | Layer     | Tech                                                       |
@@ -288,7 +296,8 @@ The architecture is deliberately prepared for this:
 | Frontend  | React 18, Vite 6, React Router 6, Tailwind CSS 4, Lucide    |
 | State     | React Context (Cart / Menu / Orders / Tables / Settings / Toast) |
 | Backend   | Node.js, Express 4, CORS, dotenv                            |
-| Storage   | localStorage (frontend) + JSON file on disk (backend)       |
+| Database  | Supabase (PostgreSQL) via `@supabase/supabase-js` (service role) |
+| Fallback  | localStorage (frontend) when the API is unreachable         |
 | Charts    | Custom dependency-free SVG/div charts                       |
 
 ---

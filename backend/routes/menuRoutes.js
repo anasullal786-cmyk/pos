@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import * as menu from '../controllers/menuController.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
 
 const router = Router();
 
-router.get('/', menu.getAll);
-router.post('/', menu.create);
-router.put('/:id', menu.update);
-router.delete('/:id', menu.remove);
+router.get('/', asyncHandler(menu.getAll));
+router.post('/', asyncHandler(menu.create));
+router.put('/:id', asyncHandler(menu.update));
+router.delete('/:id', asyncHandler(menu.remove));
 
 export default router;
