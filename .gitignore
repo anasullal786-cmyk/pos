@@ -6,3 +6,6 @@ dist/
 .DS_Store
 backend/data/
 .vercel/
+
+.vercel
+.env*

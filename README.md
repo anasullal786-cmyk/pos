@@ -92,6 +92,20 @@ npm run preview      # serve the built frontend locally
 > The Vite dev server proxies `/api/*` to `http://localhost:5000`. In production, host the API
 > and the built frontend behind the same origin (or set CORS and an absolute API base).
 
+### Deploy (Vercel)
+
+The repo deploys to Vercel as a single project using the **Services** model (see `vercel.json`):
+`frontend/` builds as a Vite static app, `backend/` runs as a Node service, and top-level
+rewrites route `/api/*` to the backend and everything else to the SPA.
+
+1. `npx vercel login`, then `npx vercel link`
+2. Add `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to the project's environment variables
+   (Production) — never commit them
+3. `npx vercel --prod`
+
+The backend initialises its Supabase connection lazily per instance, so it works both as a
+long-running local server and on Vercel's managed infrastructure.
+
 ---
 
 ## 🏗 Architecture
