@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+/*
+ * Café POS design tokens — BLACK & RED theme.
+ * Tailwind v4 theme extension — these become utilities like
+ * bg-coffee-600, text-cream-50, border-cream-200, etc.
+ *
+ * coffee-* is now a neutral black/gray scale (chrome, buttons, text),
+ * warm-* is the red accent (primary CTA, occupied tables),
+ * leaf-* stays green for the "Available" status meaning.
+ */
+@theme {
+  /* Neutral black scale (was coffee brown) */
+  --color-coffee-50: #fafafa;
+  --color-coffee-100: #f5f5f5;
+  --color-coffee-200: #e5e5e5;
+  --color-coffee-300: #b3b3b3;
+  --color-coffee-400: #8a8a8a;
+  --color-coffee-500: #5c5c5c;
+  --color-coffee-600: #111111;
+  --color-coffee-700: #000000;
+  --color-coffee-800: #171717;
+  --color-coffee-900: #0a0a0a;
+
+  /* Light gray surfaces (was cream) */
+  --color-cream-50: #f7f7f8;
+  --color-cream-100: #ededee;
+  --color-cream-200: #e4e4e6;
+  --color-cream-300: #cfcfd2;
+
+  /* Red accent (was warm orange) */
+  --color-warm-50: #fef2f2;
+  --color-warm-100: #fee2e2;
+  --color-warm-400: #ef4444;
+  --color-warm-500: #dc2626;
+  --color-warm-600: #b91c1c;
+
+  /* Green — kept for "Available" tables (functional status color) */
+  --color-leaf-500: #22c55e;
+  --color-leaf-600: #16a34a;
+  --color-leaf-700: #15803d;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  @apply bg-cream-100 text-coffee-900 antialiased;
+}
+
+/* ---------- Receipt typography ---------- */
+.font-receipt-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+}
+.font-receipt-sans {
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Slim scrollbars to fit the POS panel look */
+.nice-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.nice-scroll::-webkit-scrollbar-track { background: transparent; }
+.nice-scroll::-webkit-scrollbar-thumb { background: #d4d4d4; border-radius: 8px; }
+
+/* ---------- Print styles for receipts ---------- */
+@media print {
+  body * { visibility: hidden; }
+  #receipt-print-area, #receipt-print-area * { visibility: visible; }
+  #receipt-print-area {
+    position: fixed;
+    inset: 0;
+    width: 80mm;
+    margin: 0 auto;
+    padding: 4mm 5mm;
+    color: #000;
+    background: #fff;
+    box-shadow: none;
+    border: none;
+    border-radius: 0;
+  }
+
+  /* Crisp thermal-print output: pure black text, no gradients/borders/shadows */
+  #receipt-print-area * {
+    color: #000 !important;
+    border-color: #000 !important;
+    box-shadow: none !important;
+  }
+  #receipt-print-area .print-avoid-break {
+    break-inside: avoid;
+  }
+}
