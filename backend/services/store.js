@@ -117,23 +117,42 @@ const settingsColumns = (s) => ({
 
 /* ---- initialization / seeding --------------------------------------- */
 
+/** Seed with upserts so concurrent cold-start instances can't collide on PKs. */
+async function upsertMenuItems(items) {
+  for (const item of items) {
+    const { error } = await supabase
+      .from('menu_items')
+      .upsert({ id: item.id, ...menuItemColumns(item) });
+    if (error) throw dbError(error);
+  }
+}
+
+async function upsertTables(tables) {
+  for (const t of tables) {
+    const { error } = await supabase
+      .from('tables')
+      .upsert({ id: t.id, name: t.name, status: t.status || 'Available' });
+    if (error) throw dbError(error);
+  }
+}
+
 /**
  * Ensure the database has content: seed menu items and tables when the
  * corresponding tables are empty (first run or after a reset), and make
- * sure the settings row exists. Called once at server start.
+ * sure the settings row exists. Called once at server start (and on the
+ * first request of each serverless instance).
  */
 export async function initialize({ menu: seedMenu = [], tables: seedTables = [] } = {}) {
   let menu = await getMenu();
   let tables = await getTables();
 
-  // Inserted one-by-one so created_at preserves the seed order.
   if (menu.length === 0 && seedMenu.length > 0) {
-    for (const item of seedMenu) await insertMenuItem(item);
+    await upsertMenuItems(seedMenu);
     menu = await getMenu();
     console.log(`[store] First run: seeded ${menu.length} menu items into Supabase.`);
   }
   if (tables.length === 0 && seedTables.length > 0) {
-    for (const t of seedTables) await insertTable(t);
+    await upsertTables(seedTables);
     tables = await getTables();
     console.log(`[store] First run: seeded ${tables.length} tables into Supabase.`);
   }
@@ -363,8 +382,8 @@ export async function resetAll({ menu: seedMenu = [], tables: seedTables = [] } 
     const { error } = await supabase.from(name).delete().not('id', 'is', null);
     if (error) throw dbError(error);
   }
-  for (const item of seedMenu) await insertMenuItem(item);
-  for (const t of seedTables) await insertTable(t);
+  await upsertMenuItems(seedMenu);
+  await upsertTables(seedTables);
   await setSettings({ ...DEFAULT_SETTINGS });
   console.log('[store] All data wiped and re-seeded.');
 }
